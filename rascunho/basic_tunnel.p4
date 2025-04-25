@@ -4,7 +4,7 @@
 const bit<16> TYPE_MYTUNNEL = 0x1212;
 const bit<16> TYPE_IPV4 = 0x0800;
 const bit<16> TYPE_COUNTER_HEADER = 0x9999;
-register<bit<32>>(1) my_counter;
+register<bit<8>>(1) my_counter;
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -41,7 +41,7 @@ header ipv4_t {
 }
 
 header counter_header_t {
-    bit<32> cont_value;
+    bit<8> cont_value;
 }
 
 struct metadata {
@@ -71,21 +71,21 @@ parser MyParser(packet_in packet,
     state parse_ethernet {
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType) {
-            TYPE_COUNTER_HEADER : parse_mycounter;
+            //TYPE_COUNTER_HEADER : parse_mycounter;
             TYPE_MYTUNNEL: parse_myTunnel;
             TYPE_IPV4: parse_ipv4;
             default: accept;
         }
     }
 
-    state parse_mycounter {
+    /*state parse_mycounter {
         packet.extract(hdr.counter_header);
         transition select(hdr.counter_header.cont_value[15:0]) {
             TYPE_MYTUNNEL: parse_myTunnel;
             TYPE_IPV4: parse_ipv4;
             default : accept;
         }
-    }
+    }*/
 
     state parse_myTunnel {
         packet.extract(hdr.myTunnel);
@@ -99,7 +99,6 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.ipv4);
         transition accept;
     }
-
 }
 
 /*************************************************************************
@@ -109,7 +108,6 @@ parser MyParser(packet_in packet,
 control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
     apply {  }
 }
-
 
 /*************************************************************************
 **************  I N G R E S S   P R O C E S S I N G   *******************
@@ -130,14 +128,15 @@ control MyIngress(inout headers hdr,
     }
 
     action insert_counter_value() {
-        bit<32> value;
+        bit<8> value;
         my_counter.read(value, 0);
         hdr.counter_header.setValid();
         hdr.counter_header.cont_value = value;
+        hdr.ethernet.etherType = TYPE_COUNTER_HEADER;
     }
 
     action increment_counter() {
-        bit<32> value;
+        bit<8> value;
         my_counter.read(value, 0);
         value = value + 1;
         my_counter.write(0, value);
@@ -172,7 +171,7 @@ control MyIngress(inout headers hdr,
         default_action = drop();
     }
 
-    apply {
+     apply {
         increment_counter();
         insert_counter_value();
 
@@ -183,6 +182,8 @@ control MyIngress(inout headers hdr,
         if (hdr.myTunnel.isValid()) {
             myTunnel_exact.apply();
         }
+
+
     }
 }
 
@@ -200,7 +201,7 @@ control MyEgress(inout headers hdr,
 *************   C H E C K S U M    C O M P U T A T I O N   **************
 *************************************************************************/
 
-control MyComputeChecksum(inout headers  hdr, inout metadata meta) {
+control MyComputeChecksum(inout headers hdr, inout metadata meta) {
      apply {
         update_checksum(
             hdr.ipv4.isValid(),
@@ -226,10 +227,13 @@ control MyComputeChecksum(inout headers  hdr, inout metadata meta) {
 
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
+        // mudou ordem dos headers
         packet.emit(hdr.ethernet);
-        packet.emit(hdr.myTunnel);
-        packet.emit(hdr.ipv4);
         packet.emit(hdr.counter_header);
+        //packet.emit(hdr.myTunnel);
+        packet.emit(hdr.ipv4);
+       
+
     }
 }
 
