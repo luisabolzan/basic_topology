@@ -4,7 +4,7 @@
 import os
 import sys
 
-from myTunnel_header import MyTunnel, CounterHeader
+from myTunnel_header import MyTunnel
 from scapy.all import TCP, get_if_list, sniff
 
 
@@ -20,8 +20,9 @@ def get_if():
         exit(1)
     return iface
 
+# add 'or CounterHeader in pkt:'
 def handle_pkt(pkt):
-    if MyTunnel in pkt or (TCP in pkt and pkt[TCP].dport == 1234) or CounterHeader in pkt:
+    if MyTunnel in pkt or (TCP in pkt and pkt[TCP].dport == 1234):
         print("got a packet")
         pkt.show2()
 #        hexdump(pkt)
