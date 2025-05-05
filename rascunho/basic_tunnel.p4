@@ -72,7 +72,7 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType) {
             //TYPE_COUNTER_HEADER : parse_mycounter;
-            TYPE_MYTUNNEL: parse_myTunnel;
+            //TYPE_MYTUNNEL: parse_myTunnel;
             TYPE_IPV4: parse_ipv4;
             default: accept;
         }
@@ -87,13 +87,13 @@ parser MyParser(packet_in packet,
         }
     }*/
 
-    state parse_myTunnel {
+    /*state parse_myTunnel {
         packet.extract(hdr.myTunnel);
         transition select(hdr.myTunnel.proto_id) {
             TYPE_IPV4: parse_ipv4;
             default: accept;
         }
-    }
+    }*/
 
     state parse_ipv4 {
         packet.extract(hdr.ipv4);
@@ -135,8 +135,9 @@ control MyIngress(inout headers hdr,
         hdr.ethernet.etherType = TYPE_COUNTER_HEADER;
     }
 
+
     action increment_counter() {
-        bit<8> value;
+        bit<8> value = 0;
         my_counter.read(value, 0);
         value = value + 1;
         my_counter.write(0, value);
@@ -159,7 +160,7 @@ control MyIngress(inout headers hdr,
         standard_metadata.egress_spec = port;
     }
 
-    table myTunnel_exact {
+    /*table myTunnel_exact {
         key = {
             hdr.myTunnel.dst_id: exact;
         }
@@ -169,7 +170,7 @@ control MyIngress(inout headers hdr,
         }
         size = 1024;
         default_action = drop();
-    }
+    }*/
 
      apply {
         increment_counter();
@@ -179,9 +180,9 @@ control MyIngress(inout headers hdr,
             ipv4_lpm.apply();
         }
 
-        if (hdr.myTunnel.isValid()) {
+        /*if (hdr.myTunnel.isValid()) {
             myTunnel_exact.apply();
-        }
+        }*/
 
 
     }
@@ -231,9 +232,7 @@ control MyDeparser(packet_out packet, in headers hdr) {
         packet.emit(hdr.ethernet);
         packet.emit(hdr.counter_header);
         //packet.emit(hdr.myTunnel);
-        packet.emit(hdr.ipv4);
-       
-
+        packet.emit(hdr.ipv4);       
     }
 }
 
