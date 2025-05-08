@@ -1,10 +1,9 @@
 #include <core.p4>
 #include <v1model.p4>
 
-const bit<16> TYPE_MYTUNNEL = 0x1212;
 const bit<16> TYPE_IPV4 = 0x0800;
-const bit<16> TYPE_COUNTER_HEADER = 0x9999;
-register<bit<8>>(1) my_counter;
+
+register<bit<16>>(1) my_counter;
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -20,11 +19,6 @@ header ethernet_t {
     bit<16>   etherType;
 }
 
-header myTunnel_t {
-    bit<16> proto_id;
-    bit<16> dst_id;
-}
-
 header ipv4_t {
     bit<4>    version;
     bit<4>    ihl;
@@ -34,14 +28,14 @@ header ipv4_t {
     bit<3>    flags;
     bit<13>   fragOffset;
     bit<8>    ttl;
-    bit<8>    protocol;
+    bit<8>    protocol;  // aqui tu pode definir qual protocolo corresponde ao counter, cuidar para não conflitar com o codigo do header tcp ou udp
     bit<16>   hdrChecksum;
     ip4Addr_t srcAddr;
     ip4Addr_t dstAddr;
 }
 
 header counter_header_t {
-    bit<32> cont_value;
+    bit<16> cont_value;
 }
 
 struct metadata {
@@ -50,7 +44,6 @@ struct metadata {
 
 struct headers {
     ethernet_t          ethernet;
-    myTunnel_t          myTunnel;
     ipv4_t              ipv4;
     counter_header_t    counter_header;
 }
@@ -110,18 +103,17 @@ control MyIngress(inout headers hdr,
     }
 
     action increment_counter() {
-        bit<8> value = 0;
+        bit<16> value = 0;
         my_counter.read(value, 0);
         value = value + 1;
         my_counter.write(0, value);
     }
 
     action insert_counter_value() {
-        bit<8> value;
+        bit<16> value;
         my_counter.read(value, 0);
         hdr.counter_header.setValid();
-        hdr.counter_header.cont_value = (bit<32>) value;
-        hdr.ethernet.etherType = TYPE_COUNTER_HEADER;
+        hdr.counter_header.cont_value = (bit<16>) value;
     }
 
     table ipv4_lpm {
@@ -138,11 +130,11 @@ control MyIngress(inout headers hdr,
     }
 
     apply {
-        increment_counter();
-        insert_counter_value();
-
-        if (hdr.ipv4.isValid() && !hdr.myTunnel.isValid()) {
+        if (hdr.ipv4.isValid()) {
             ipv4_lpm.apply();
+
+						increment_counter();
+		        insert_counter_value();
         }
     }
 }
@@ -188,8 +180,8 @@ control MyComputeChecksum(inout headers hdr, inout metadata meta) {
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         packet.emit(hdr.ethernet);
-        packet.emit(hdr.counter_header);
         packet.emit(hdr.ipv4);       
+        packet.emit(hdr.counter_header);
     }
 }
 
