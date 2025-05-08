@@ -1,10 +1,10 @@
-// SPDX-License-Identifier: Apache-2.0
-/* -*- P4_16 -*- */
 #include <core.p4>
 #include <v1model.p4>
 
 const bit<16> TYPE_MYTUNNEL = 0x1212;
-const bit<16> TYPE_IPV4 = 0x800;
+const bit<16> TYPE_IPV4 = 0x0800;
+const bit<16> TYPE_COUNTER_HEADER = 0x9999;
+register<bit<8>>(1) my_counter;
 
 /*************************************************************************
 *********************** H E A D E R S  ***********************************
@@ -71,15 +71,6 @@ parser MyParser(packet_in packet,
     state parse_ethernet {
         packet.extract(hdr.ethernet);
         transition select(hdr.ethernet.etherType) {
-            TYPE_MYTUNNEL: parse_myTunnel;
-            TYPE_IPV4: parse_ipv4;
-            default: accept;
-        }
-    }
-
-    state parse_myTunnel {
-        packet.extract(hdr.myTunnel);
-        transition select(hdr.myTunnel.proto_id) {
             TYPE_IPV4: parse_ipv4;
             default: accept;
         }
@@ -89,7 +80,6 @@ parser MyParser(packet_in packet,
         packet.extract(hdr.ipv4);
         transition accept;
     }
-
 }
 
 /*************************************************************************
@@ -100,7 +90,6 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
     apply {  }
 }
 
-
 /*************************************************************************
 **************  I N G R E S S   P R O C E S S I N G   *******************
 *************************************************************************/
@@ -108,6 +97,7 @@ control MyVerifyChecksum(inout headers hdr, inout metadata meta) {
 control MyIngress(inout headers hdr,
                   inout metadata meta,
                   inout standard_metadata_t standard_metadata) {
+
     action drop() {
         mark_to_drop(standard_metadata);
     }
@@ -117,6 +107,21 @@ control MyIngress(inout headers hdr,
         hdr.ethernet.srcAddr = hdr.ethernet.dstAddr;
         hdr.ethernet.dstAddr = dstAddr;
         hdr.ipv4.ttl = hdr.ipv4.ttl - 1;
+    }
+
+    action increment_counter() {
+        bit<8> value = 0;
+        my_counter.read(value, 0);
+        value = value + 1;
+        my_counter.write(0, value);
+    }
+
+    action insert_counter_value() {
+        bit<8> value;
+        my_counter.read(value, 0);
+        hdr.counter_header.setValid();
+        hdr.counter_header.cont_value = (bit<32>) value;
+        hdr.ethernet.etherType = TYPE_COUNTER_HEADER;
     }
 
     table ipv4_lpm {
@@ -132,31 +137,12 @@ control MyIngress(inout headers hdr,
         default_action = drop();
     }
 
-    action myTunnel_forward(egressSpec_t port) {
-        standard_metadata.egress_spec = port;
-    }
-
-    table myTunnel_exact {
-        key = {
-            hdr.myTunnel.dst_id: exact;
-        }
-        actions = {
-            myTunnel_forward;
-            drop;
-        }
-        size = 1024;
-        default_action = drop();
-    }
-
     apply {
-        if (hdr.ipv4.isValid() && !hdr.myTunnel.isValid()) {
-            // Process only non-tunneled IPv4 packets
-            ipv4_lpm.apply();
-        }
+        increment_counter();
+        insert_counter_value();
 
-        if (hdr.myTunnel.isValid()) {
-            // process tunneled packets
-            myTunnel_exact.apply();
+        if (hdr.ipv4.isValid() && !hdr.myTunnel.isValid()) {
+            ipv4_lpm.apply();
         }
     }
 }
@@ -175,7 +161,7 @@ control MyEgress(inout headers hdr,
 *************   C H E C K S U M    C O M P U T A T I O N   **************
 *************************************************************************/
 
-control MyComputeChecksum(inout headers  hdr, inout metadata meta) {
+control MyComputeChecksum(inout headers hdr, inout metadata meta) {
      apply {
         update_checksum(
             hdr.ipv4.isValid(),
@@ -202,8 +188,8 @@ control MyComputeChecksum(inout headers  hdr, inout metadata meta) {
 control MyDeparser(packet_out packet, in headers hdr) {
     apply {
         packet.emit(hdr.ethernet);
-        packet.emit(hdr.myTunnel);
-        packet.emit(hdr.ipv4);
+        packet.emit(hdr.counter_header);
+        packet.emit(hdr.ipv4);       
     }
 }
 
@@ -212,10 +198,10 @@ control MyDeparser(packet_out packet, in headers hdr) {
 *************************************************************************/
 
 V1Switch(
-MyParser(),
-MyVerifyChecksum(),
-MyIngress(),
-MyEgress(),
-MyComputeChecksum(),
-MyDeparser()
+    MyParser(),
+    MyVerifyChecksum(),
+    MyIngress(),
+    MyEgress(),
+    MyComputeChecksum(),
+    MyDeparser()
 ) main;

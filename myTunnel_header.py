@@ -17,6 +17,4 @@ class MyTunnel(Packet):
         return self.sprintf("pid=%pid%, dst_id=%dst_id%")
 
 
-bind_layers(Ether, MyTunnel, type=TYPE_MYTUNNEL)
-bind_layers(MyTunnel, IP, pid=TYPE_IPV4)
 
