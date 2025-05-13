@@ -1,45 +1,78 @@
 #!/usr/bin/env python3
-import sys
-from scapy.all import *
-from scapy.all import IP, TCP, Ether, get_if_hwaddr, get_if_list, sendp
-from myTunnel_header import MyTunnel  # Certifique-se de que MyTunnel está corretamente importado
 
-TYPE_COUNTER_HEADER = 0x9999
-TYPE_MYTUNNEL = 0x1212
+import socket
+import struct
+import textwrap
+from collections import namedtuple
+
+# Constants
 TYPE_IPV4 = 0x0800
 
-# Definindo o cabeçalho CounterHeader
-class CounterHeader(Packet):
-    name = "CounterHeader"
-    fields_desc = [
-        XIntField("cont_value", 0)  # Definindo o campo 'cont_value' com valor inicial 0
-    ]
+# Header formats
+eth_header = struct.Struct('!6s6sH')
+ip_header = struct.Struct('!BBHHHBBH4s4s')
+counter_header = struct.Struct('!H')
 
-# Realizando os binds entre as camadas
-bind_layers(Ether, CounterHeader, type=0x9999)  # Ethernet tipo 0x9999 associando a CounterHeader
-bind_layers(CounterHeader, IP)  # CounterHeader agora associa com IPv4Header
-
-def handle_pkt(pkt):
-    # Verificando se o pacote contém o cabeçalho CounterHeader
-    if CounterHeader in pkt:
-        
-        pkt.show2()
-        sys.stdout.flush()
+# Named tuples for parsed headers
+EthHeader = namedtuple('EthHeader', ['dest', 'src', 'type'])
+IpHeader = namedtuple('IpHeader', ['version_ihl', 'diffserv', 'total_len', 'identification',
+                                  'flags_frag_offset', 'ttl', 'protocol', 'checksum',
+                                  'src_addr', 'dest_addr'])
+CounterHeader = namedtuple('CounterHeader', ['value'])
 
 def main():
-    # Encontrando a interface de rede para sniffing (eth0 ou s0)
-    iface = next((i for i in get_if_list() if 'eth0' in i or 's0' in i), None)
-    if not iface:
-        print("Cannot find eth0 or s0 interface")
-        return
+    # Create raw socket to listen on all interfaces
+    conn = socket.socket(socket.AF_PACKET, socket.SOCK_RAW, socket.ntohs(3))  # ETH_P_ALL
     
-    # Exibindo a interface em que vamos fazer o sniffing
-    print(f"Sniffing on {iface}")
+    print("Waiting for packets...")
     
-    # Iniciando o sniffing dos pacotes
-    sniff(iface=iface,
-          prn=lambda x: handle_pkt(x),
-          filter="ether proto 0x9999 or ether proto 0x1212")  # Filtro para capturar pacotes do tipo desejado
+    while True:
+        raw_data, addr = conn.recvfrom(65535)
+        
+        # Parse Ethernet header
+        eth = parse_ethernet_header(raw_data[:14])
+        print('\nEthernet Frame:')
+        print(f'Destination: {format_mac(eth.dest)}, Source: {format_mac(eth.src)}, Type: {hex(eth.type)}')
+        
+        # If IPv4 packet
+        if eth.type == TYPE_IPV4:
+            # Parse IP header (first 20 bytes after Ethernet)
+            ip = parse_ip_header(raw_data[14:34])
+            
+            print('\nIPv4 Packet:')
+            print(f'Version: {ip.version_ihl >> 4}, Header Length: {(ip.version_ihl & 0xF) * 4} bytes')
+            print(f'TTL: {ip.ttl}, Protocol: {ip.protocol}')
+            print(f'Source: {format_ip(ip.src_addr)}, Destination: {format_ip(ip.dest_addr)}')
+            
+            # The counter header comes after Ethernet (14) + IPv4 (20) = 34 bytes
+            counter_data = raw_data[34:36]
+            if len(counter_data) == 2:
+                counter = parse_counter_header(counter_data)
+                print('\nCounter Header:')
+                print(f'Counter value: {counter.value}')
+            else:
+                print('\nNo counter header found or incomplete')
+        else:
+            print('\nNot an IPv4 packet')
+
+def parse_ethernet_header(data):
+    dest, src, eth_type = eth_header.unpack(data)
+    return EthHeader(dest, src, eth_type)
+
+def parse_ip_header(data):
+    version_ihl, diffserv, total_len, identification, flags_frag, ttl, proto, checksum, src, dest = ip_header.unpack(data)
+    return IpHeader(version_ihl, diffserv, total_len, identification, flags_frag, ttl, proto, checksum, src, dest)
+
+def parse_counter_header(data):
+    value, = counter_header.unpack(data)
+    return CounterHeader(value)
+
+def format_mac(bytes_addr):
+    bytes_str = map('{:02x}'.format, bytes_addr)
+    return ':'.join(bytes_str).upper()
+
+def format_ip(bytes_addr):
+    return '.'.join(map(str, bytes_addr))
 
 if __name__ == '__main__':
     main()
