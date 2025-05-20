@@ -2,6 +2,7 @@
 #include <v1model.p4>
 
 const bit<16> TYPE_IPV4 = 0x0800;
+const bit<8> CUSTOM_PROTO = 99;  // Must match Scapy's CUSTOM_PROTO
 
 register<bit<16>>(1) my_counter;
 
@@ -114,6 +115,7 @@ control MyIngress(inout headers hdr,
         my_counter.read(value, 0);
         hdr.counter_header.setValid();
         hdr.counter_header.cont_value = (bit<16>) value;
+        hdr.ipv4.protocol = CUSTOM_PROTO;  // <-- Critical: Set IP protocol to 99
     }
 
     table ipv4_lpm {
@@ -133,8 +135,8 @@ control MyIngress(inout headers hdr,
         if (hdr.ipv4.isValid()) {
             ipv4_lpm.apply();
 
-						increment_counter();
-		        insert_counter_value();
+			increment_counter();
+		    insert_counter_value();
         }
     }
 }
