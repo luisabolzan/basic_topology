@@ -2,6 +2,7 @@
 #include <v1model.p4>
 
 const bit<16> TYPE_IPV4 = 0x0800;
+const bit<8> CUSTOM_PROTO = 99;  // Must match Scapy's CUSTOM_PROTO
 
 register<bit<16>>(1) my_counter;
 
@@ -109,11 +110,16 @@ control MyIngress(inout headers hdr,
         my_counter.write(0, value);
     }
 
-    action insert_counter_value() {
+      action insert_counter_value() {
         bit<16> value;
         my_counter.read(value, 0);
         hdr.counter_header.setValid();
         hdr.counter_header.cont_value = (bit<16>) value;
+        //hdr.ipv4.protocol = CUSTOM_PROTO;  // Set IP protocol to 99
+
+        // CRITICAL: Adjust IPv4 total length
+        // counter_header_t has one bit<16> field, which is 2 bytes.
+        //hdr.ipv4.totalLen = hdr.ipv4.totalLen + 2; // Add size of counter_header
     }
 
     table ipv4_lpm {
@@ -133,8 +139,8 @@ control MyIngress(inout headers hdr,
         if (hdr.ipv4.isValid()) {
             ipv4_lpm.apply();
 
-						increment_counter();
-		        insert_counter_value();
+			increment_counter();
+		    insert_counter_value();
         }
     }
 }
